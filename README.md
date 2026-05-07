@@ -18,7 +18,7 @@ A reusable menu bar component for [Bubble Tea](https://github.com/charmbracelet/
 ## Installation
 
 ```bash
-go get github.com/jejacks0n/bubbletea-menubar
+go get examples
 ```
 
 ## Usage
