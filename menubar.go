@@ -4,8 +4,8 @@ import (
 	"regexp"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*m`)
@@ -128,7 +128,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		// We need to intercept Left/Right for top-level navigation if we are the top bar
 		if !m.isDropdown {
 			switch msg := msg.(type) {
-			case tea.KeyMsg:
+			case tea.KeyPressMsg:
 				switch msg.String() {
 				case "left":
 					if !m.SubMenuState.hasOpenSubmenu() {
@@ -187,7 +187,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		key := msg.String()
 
 		// Check for hotkeys
@@ -334,7 +334,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) View() string {
+func (m Model) View() tea.View {
+	return tea.NewView(m.viewString())
+}
+
+func (m Model) viewString() string {
 	if m.isDropdown {
 		return m.viewDropdown()
 	}
@@ -370,7 +374,7 @@ func (m Model) ViewBarWithRightSide(right string, width int) string {
 
 func (m Model) ViewDropdown() (string, int) {
 	if m.OpenSubMenu != -1 && m.SubMenuState != nil {
-		dropdown := m.SubMenuState.View()
+		dropdown := m.SubMenuState.viewString()
 		offset := m.getDropdownOffset()
 		return dropdown, offset
 	}
@@ -479,10 +483,12 @@ func (m Model) handleMouse(msg tea.MouseMsg) (Model, tea.Cmd) {
 	handled, cmd := m.checkMouse(msg, 0, 0)
 
 	// If click outside, close menus
-	if !handled && msg.Type == tea.MouseRelease {
-		m.Active = false
-		m.OpenSubMenu = -1
-		m.SubMenuState = nil
+	if isMouseRelease(msg) {
+		if !handled {
+			m.Active = false
+			m.OpenSubMenu = -1
+			m.SubMenuState = nil
+		}
 	}
 
 	return m, cmd
@@ -490,6 +496,8 @@ func (m Model) handleMouse(msg tea.MouseMsg) (Model, tea.Cmd) {
 
 // checkMouse performs hit testing. Returns true if the event was handled (hit something).
 func (m *Model) checkMouse(msg tea.MouseMsg, baseX, baseY int) (bool, tea.Cmd) {
+	mouse := msg.Mouse()
+
 	// 1. Check open submenu first (it's on top)
 	if m.OpenSubMenu != -1 && m.SubMenuState != nil {
 		var subX, subY int
@@ -530,11 +538,11 @@ func (m *Model) checkMouse(msg tea.MouseMsg, baseX, baseY int) (bool, tea.Cmd) {
 	if m.isDropdown {
 		// Hit test this dropdown
 		width, height := m.getDropdownDimensions()
-		if msg.X >= baseX && msg.X < baseX+width && msg.Y >= baseY && msg.Y < baseY+height {
+		if mouse.X >= baseX && mouse.X < baseX+width && mouse.Y >= baseY && mouse.Y < baseY+height {
 			// Hit!
 			// Calculate Item Index
 			topBorder := lipgloss.Height(m.Styles.Dropdown.GetBorderStyle().Top)
-			localY := msg.Y - baseY - topBorder
+			localY := mouse.Y - baseY - topBorder
 
 			// We iterate items to find which one covers localY
 			currentY := 0
@@ -550,13 +558,13 @@ func (m *Model) checkMouse(msg tea.MouseMsg, baseX, baseY int) (bool, tea.Cmd) {
 					}
 					m.Selection = i
 
-					if msg.Type == tea.MouseRelease {
+					if isMouseRelease(msg) {
 						if len(m.Items[i].SubMenu) > 0 {
 							m.openCurrentSelection()
 						} else if m.Items[i].Action != nil {
 							return true, func() tea.Msg { return m.Items[i].Action() }
 						}
-					} else if msg.Type == tea.MouseMotion {
+					} else if isMouseMotion(msg) {
 						if m.OpenSubMenu != -1 && m.OpenSubMenu != i {
 							m.OpenSubMenu = -1
 							m.SubMenuState = nil
@@ -570,14 +578,14 @@ func (m *Model) checkMouse(msg tea.MouseMsg, baseX, baseY int) (bool, tea.Cmd) {
 		}
 	} else {
 		barHeight := lipgloss.Height(m.Styles.Bar.Render("A"))
-		if msg.Y >= baseY && msg.Y < baseY+barHeight {
+		if mouse.Y >= baseY && mouse.Y < baseY+barHeight {
 			currentX := baseX
 			for i := range m.Items {
 				w := m.measureItem(i)
-				if msg.X >= currentX && msg.X < currentX+w {
+				if mouse.X >= currentX && mouse.X < currentX+w {
 					m.Selection = i
 
-					if msg.Type == tea.MouseRelease {
+					if isMouseRelease(msg) {
 						if !m.Active {
 							m.Active = true
 						}
@@ -591,7 +599,7 @@ func (m *Model) checkMouse(msg tea.MouseMsg, baseX, baseY int) (bool, tea.Cmd) {
 						} else if m.Items[i].Action != nil {
 							return true, func() tea.Msg { return m.Items[i].Action() }
 						}
-					} else if msg.Type == tea.MouseMotion {
+					} else if isMouseMotion(msg) {
 						if m.Active && m.OpenSubMenu != -1 && m.OpenSubMenu != i {
 							m.openCurrentSelection()
 						}
@@ -605,6 +613,16 @@ func (m *Model) checkMouse(msg tea.MouseMsg, baseX, baseY int) (bool, tea.Cmd) {
 	}
 
 	return false, nil
+}
+
+func isMouseRelease(msg tea.MouseMsg) bool {
+	_, ok := msg.(tea.MouseReleaseMsg)
+	return ok
+}
+
+func isMouseMotion(msg tea.MouseMsg) bool {
+	_, ok := msg.(tea.MouseMotionMsg)
+	return ok
 }
 
 func (m Model) hasOpenSubmenu() bool {
@@ -701,7 +719,7 @@ func (m Model) viewDropdown() string {
 	menu := m.renderSingleDropdown()
 
 	if m.OpenSubMenu != -1 && m.SubMenuState != nil {
-		subMenu := m.SubMenuState.View()
+		subMenu := m.SubMenuState.viewString()
 		padding := strings.Repeat("\n", m.Selection+1) // +1 for top border
 		return lipgloss.JoinHorizontal(lipgloss.Top, menu, padding+subMenu)
 	}
